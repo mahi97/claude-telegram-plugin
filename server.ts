@@ -23,12 +23,29 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, 
 import { homedir } from 'os'
 import { join, extname, sep } from 'path'
 
-const STATE_DIR = process.env.TELEGRAM_STATE_DIR ?? join(homedir(), '.claude', 'channels', 'telegram')
+// Auto-detect project-level state dir: if CWD has .claude/, use .claude/telegram/
+// Otherwise fall back to ~/.claude/channels/telegram/
+function resolveStateDir(): string {
+  if (process.env.TELEGRAM_STATE_DIR) return process.env.TELEGRAM_STATE_DIR
+  const cwd = process.cwd()
+  const projectDir = join(cwd, '.claude', 'telegram')
+  // Check if project .claude/ exists (we're in a project context)
+  try {
+    statSync(join(cwd, '.claude'))
+    return projectDir
+  } catch {}
+  return join(homedir(), '.claude', 'channels', 'telegram')
+}
+
+const STATE_DIR = resolveStateDir()
 const ACCESS_FILE = join(STATE_DIR, 'access.json')
 const APPROVED_DIR = join(STATE_DIR, 'approved')
 const ENV_FILE = join(STATE_DIR, '.env')
 
-// Load ~/.claude/channels/telegram/.env into process.env. Real env wins.
+// Ensure state dir exists on first run
+try { mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 }) } catch {}
+
+// Load .env into process.env. Real env wins.
 // Plugin-spawned servers don't get an env block — this is where the token lives.
 try {
   // Token is a credential — lock to owner. No-op on Windows (would need ACLs).
@@ -45,8 +62,10 @@ const STATIC = process.env.TELEGRAM_ACCESS_MODE === 'static'
 if (!TOKEN) {
   process.stderr.write(
     `telegram channel: TELEGRAM_BOT_TOKEN required\n` +
-    `  set in ${ENV_FILE}\n` +
-    `  format: TELEGRAM_BOT_TOKEN=123456789:AAH...\n`,
+    `  state dir: ${STATE_DIR}\n` +
+    `  Run: /telegram:configure <token>\n` +
+    `  Or manually: echo "TELEGRAM_BOT_TOKEN=123456789:AAH..." > ${ENV_FILE}\n` +
+    `  Get a token from @BotFather on Telegram.\n`,
   )
   process.exit(1)
 }
