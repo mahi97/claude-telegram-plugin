@@ -1,99 +1,139 @@
-# Telegram
+# Telegram Plugin for Claude Code (Patched)
 
-Connect a Telegram bot to your Claude Code with an MCP server.
+Patched fork of `telegram@claude-plugins-official` with fixes for multi-session stability and reply-to context.
 
-The MCP server logs into Telegram as a bot and provides tools to Claude to reply, react, or edit messages. When you message the bot, the server forwards the message to your Claude Code session.
+## What's Different From the Official Plugin
+
+| Feature | Official | This Fork |
+|---------|----------|-----------|
+| Multiple sessions | Compete for messages, random delivery | **PID lock** — first instance polls, others serve tools only |
+| Agent Team support | Teammates spawn competing bots | PID lock prevents conflicts automatically |
+| Reply-to context | Not passed to Claude | **reply_to_message_id + reply_to_text** included in channel meta |
+| Network errors | 409-only retry (fixed in v0.0.6) | All-error retry (inherited from v0.0.6) |
+| State directory | Always `~/.claude/channels/telegram/` | **Auto-detects project-level** `.claude/telegram/` |
+| First-run setup | Manual dir creation + file editing | **Auto-creates dirs**, guides with `/telegram:configure` |
+
+Based on official v0.0.6. See upstream issues: [#38098](https://github.com/anthropics/claude-code/issues/38098), [#39876](https://github.com/anthropics/claude-code/issues/39876).
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) — the MCP server runs on Bun. Install with `curl -fsSL https://bun.sh/install | bash`.
+- [Bun](https://bun.sh) — install with `curl -fsSL https://bun.sh/install | bash`
 
 ## Quick Setup
-> Default pairing flow for a single-user DM bot. See [ACCESS.md](./ACCESS.md) for groups and multi-user setups.
 
-**1. Create a bot with BotFather.**
+**1. Create a bot with [@BotFather](https://t.me/BotFather).**
 
-Open a chat with [@BotFather](https://t.me/BotFather) on Telegram and send `/newbot`. BotFather asks for two things:
+Send `/newbot`, pick a name and username. Copy the token (`123456789:AAH...`).
 
-- **Name** — the display name shown in chat headers (anything, can contain spaces)
-- **Username** — a unique handle ending in `bot` (e.g. `my_assistant_bot`). This becomes your bot's link: `t.me/my_assistant_bot`.
+**2. Add the marketplace to your project.**
 
-BotFather replies with a token that looks like `123456789:AAHfiqksKZ8...` — that's the whole token, copy it including the leading number and colon.
+In your project's `.claude/settings.json`:
 
-**2. Install the plugin.**
-
-These are Claude Code commands — run `claude` to start a session first.
-
-Install the plugin:
+```json
+{
+  "extraKnownMarketplaces": {
+    "mahi97-telegram": {
+      "source": {
+        "source": "github",
+        "repo": "mahi97/claude-telegram-plugin"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "telegram@mahi97-telegram": true
+  }
+}
 ```
-/plugin install telegram@claude-plugins-official
-/reload-plugins
+
+Or add it globally in `~/.claude/settings.json` if you want it in all projects.
+
+**3. Start Claude Code with the channel flag.**
+
+```bash
+claude --channels plugin:telegram@mahi97-telegram
 ```
 
-**3. Give the server the token.**
+The plugin auto-creates `.claude/telegram/` in your project. On first run it prints:
+
+```
+telegram channel: TELEGRAM_BOT_TOKEN required
+  Run: /telegram:configure <token>
+```
+
+**4. Configure the token.**
 
 ```
 /telegram:configure 123456789:AAHfiqksKZ8...
 ```
 
-Writes `TELEGRAM_BOT_TOKEN=...` to `~/.claude/channels/telegram/.env`. You can also write that file by hand, or set the variable in your shell environment — shell takes precedence.
+This saves the token to `.claude/telegram/.env` and adds `.claude/telegram/` to `.gitignore`.
 
-> To run multiple bots on one machine (different tokens, separate allowlists), point `TELEGRAM_STATE_DIR` at a different directory per instance.
+**5. Restart and pair.**
 
-**4. Relaunch with the channel flag.**
-
-The server won't connect without this — exit your session and start a new one:
-
-```sh
-claude --channels plugin:telegram@claude-plugins-official
+```bash
+claude --channels plugin:telegram@mahi97-telegram
 ```
 
-**5. Pair.**
-
-With Claude Code running from the previous step, DM your bot on Telegram — it replies with a 6-character pairing code. If the bot doesn't respond, make sure your session is running with `--channels`. In your Claude Code session:
+DM your bot on Telegram — it replies with a 6-character pairing code:
 
 ```
 /telegram:access pair <code>
 ```
 
-Your next DM reaches the assistant.
-
-> Unlike Discord, there's no server invite step — Telegram bots accept DMs immediately. Pairing handles the user-ID lookup so you never touch numeric IDs.
-
 **6. Lock it down.**
 
-Pairing is for capturing IDs. Once you're in, switch to `allowlist` so strangers don't get pairing-code replies. Ask Claude to do it, or `/telegram:access policy allowlist` directly.
+```
+/telegram:access policy allowlist
+```
 
-## Access control
+Done. Your bot only responds to approved users.
 
-See **[ACCESS.md](./ACCESS.md)** for DM policies, groups, mention detection, delivery config, skill commands, and the `access.json` schema.
+## Multi-Project Setup
 
-Quick reference: IDs are **numeric user IDs** (get yours from [@userinfobot](https://t.me/userinfobot)). Default policy is `pairing`. `ackReaction` only accepts Telegram's fixed emoji whitelist.
+Each project can have its own bot (or share one). The plugin auto-detects:
 
-## Tools exposed to the assistant
+- **Project has `.claude/`** → uses `.claude/telegram/` (project-scoped)
+- **No `.claude/`** → falls back to `~/.claude/channels/telegram/` (user-scoped)
+- **`TELEGRAM_STATE_DIR` env var** → overrides both (explicit path)
+
+Different tokens = different bots. Same token = same bot, separate access control per project.
+
+## Disabling the Official Plugin
+
+If you previously had `telegram@claude-plugins-official` enabled, disable it in `~/.claude/settings.json`:
+
+```json
+{
+  "enabledPlugins": {
+    "telegram@claude-plugins-official": false
+  }
+}
+```
+
+This prevents the official plugin from spawning competing instances.
+
+## Tools Exposed to the Assistant
 
 | Tool | Purpose |
-| --- | --- |
-| `reply` | Send to a chat. Takes `chat_id` + `text`, optionally `reply_to` (message ID) for native threading and `files` (absolute paths) for attachments. Images (`.jpg`/`.png`/`.gif`/`.webp`) send as photos with inline preview; other types send as documents. Max 50MB each. Auto-chunks text; files send as separate messages after the text. Returns the sent message ID(s). |
-| `react` | Add an emoji reaction to a message by ID. **Only Telegram's fixed whitelist** is accepted (👍 👎 ❤ 🔥 👀 etc). |
-| `edit_message` | Edit a message the bot previously sent. Useful for "working…" → result progress updates. Only works on the bot's own messages. |
+|------|---------|
+| `reply` | Send to a chat. Supports `reply_to` for threading and `files` for attachments. |
+| `react` | Add an emoji reaction (Telegram whitelist only). |
+| `edit_message` | Edit a bot message. Useful for progress updates. |
+| `download_attachment` | Download file attachments from inbound messages. |
 
-Inbound messages trigger a typing indicator automatically — Telegram shows
-"botname is typing…" while the assistant works on a response.
+## Reply-To Context
 
-## Photos
+When a user replies to a specific message in Telegram, the inbound channel notification includes:
 
-Inbound photos are downloaded to `~/.claude/channels/telegram/inbox/` and the
-local path is included in the `<channel>` notification so the assistant can
-`Read` it. Telegram compresses photos — if you need the original file, send it
-as a document instead (long-press → Send as File).
+- `reply_to_message_id` — ID of the message being replied to
+- `reply_to_text` — first 200 characters of that message
 
-## No history or search
+This lets Claude understand which message the user is referring to.
 
-Telegram's Bot API exposes **neither** message history nor search. The bot
-only sees messages as they arrive — no `fetch_messages` tool exists. If the
-assistant needs earlier context, it will ask you to paste or summarize.
+## Access Control
 
-This also means there's no `download_attachment` tool for historical messages
-— photos are downloaded eagerly on arrival since there's no way to fetch them
-later.
+See [ACCESS.md](./ACCESS.md) for DM policies, groups, mention detection, and the full `access.json` schema.
+
+## License
+
+Apache 2.0 (same as the official plugin).
