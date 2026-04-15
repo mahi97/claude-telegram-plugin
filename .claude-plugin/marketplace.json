@@ -1,0 +1,15 @@
+{
+  "name": "mahi97-telegram",
+  "owner": {
+    "name": "Mahi Rahimi",
+    "url": "https://github.com/mahi97"
+  },
+  "plugins": [
+    {
+      "name": "telegram",
+      "source": "./",
+      "description": "Patched Telegram plugin with PID lock + reply-to context",
+      "version": "0.0.7"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "telegram",
+  "version": "0.0.7",
+  "description": "Patched Telegram channel plugin for Claude Code — PID lock, reply-to context, improved error handling",
+  "mcpServers": {
+    "telegram": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["run", "--shell=bun", "--silent", "start"],
+      "capabilities": ["claude/channel", "claude/channel/permission"]
+    }
+  },
+  "skills": [
+    {"path": "skills/access"},
+    {"path": "skills/configure"}
+  ]
+}
